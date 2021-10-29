@@ -1,5 +1,71 @@
 defmodule LanguageProcessing do
+  import ExUnit.CaptureIO
 
+  def get_sctions(url) do
+    html = HTTPoison.get!(url)
+    sections = Regex.scan(~r/id=\\\"([0-9]+)-.+?\\\".*?\/h3(.*?)(h3|h2)/, html.body)
+    Enum.map(sections,fn section ->
+      [_, id, body | _] = section
+      outputs = Regex.scan(~r/出力\\u003c\/.+?code\\u003e(.+?)\\u003c\/code/, body)
+      {id,Enum.map(outputs,fn output ->
+        output |> Enum.at(1)
+      end)}
+    end)
+  end
+
+  def get_chapter_url() do
+    url = "https://qiita.com/yamaru/items/0cac24710626333bd693"
+    html = HTTPoison.get!(url)
+    {:ok, document} = Floki.parse_document(html.body)
+    for x <- (document |> Floki.find("p")|>Floki.find("a")), Regex.match?(~r/第[1-3]+?章/, x|>Floki.text()) ,do: x|> Floki.attribute("href")
+  end
+  
+  def write_csv() do
+    datas = for url <- get_chapter_url(), do: get_sctions(url)
+    csv = Enum.join(for data <- datas do
+      Enum.join(for {_id, body} <- data do
+        Enum.join(body, ",,,")
+      end,"'''")
+    end,"~~~")
+    
+    {:ok, file} = File.open("/Users/mishiru/language_processing/answer.csv", [:write])
+    IO.binwrite(file, csv)
+    File.close(file)
+  end
+
+  def read_csv() do
+    csv = File.read!("answer.csv")
+    for section <- csv |> String.split(["'''","~~~"]) do
+      for subsection <- section |> String.split(",,,") do
+        String.replace(subsection,"\\n","\n")
+      end
+    end
+  end
+
+  def find_answers(csv) do
+    fn 
+      [section] -> find_answers(csv, section, 0)
+      [section,subsection] -> find_answers(csv, section, subsection)
+    end
+  end
+
+  def find_answers(csv,section,subsection \\0) do
+    section = Enum.at(csv,section)
+    cond do
+      subsection == 0 -> section |> Enum.at(0)
+      true -> section |> Enum.at(subsection-1)
+    end
+  end
+
+  def checking_answers(section,subsection \\0) do
+    question_name = cond do
+      subsection == 0 -> "question" <> String.rjust(to_string(section), 2, ?0)
+      true -> "question" <> String.rjust(to_string(section), 2, ?0) <> "_" <> to_string(subsection)
+    end
+    result = capture_io(fn -> "LanguageProcessing." <> question_name |> Code.string_to_quoted |> Code.eval_quoted end)
+    answer = read_csv() |> find_answers(section,subsection) 
+    [result, answer]
+  end
   @doc """
     # 00. 文字列の逆順Permalink
     文字列”stressed”の文字を逆に（末尾から先頭に向かって）並べた文字列を得よ．

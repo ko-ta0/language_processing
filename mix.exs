@@ -23,7 +23,8 @@ defmodule LanguageProcessing.MixProject do
   defp deps do
     [
       {:poison, "~> 5.0"},
-      {:httpoison, "~> 1.8"}
+      {:httpoison, "~> 1.8"},
+      {:floki, "~> 0.30.1"}
     ]
   end
 end
